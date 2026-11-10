@@ -1,0 +1,18 @@
+<!DOCTYPE html><html lang="th"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>กำลังเข้าสู่ระบบ…</title>
+<style>html,body{margin:0;height:100%;background:#0e0907;color:#f6e8c8;font-family:Kanit,Sarabun,sans-serif;display:flex;align-items:center;justify-content:center}</style>
+</head><body><div id="m">กำลังเข้าสู่ระบบ…</div>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<script>
+(async()=>{
+  try{
+    const c=await (await fetch('/api/config')).json();
+    if(!c.url)throw 0;
+    const sb=supabase.createClient(c.url,c.anonKey,{auth:{flowType:'pkce',detectSessionInUrl:false,persistSession:true}});
+    const p=new URLSearchParams(location.search);
+    if(p.get('error')){throw 0}
+    if(p.get('code')){const {error}=await sb.auth.exchangeCodeForSession(p.get('code'));if(error)throw error}
+    location.replace('/');
+  }catch(e){document.getElementById('m').textContent='เข้าสู่ระบบไม่สำเร็จ กำลังกลับหน้าเกม…';setTimeout(()=>location.replace('/'),1800)}
+})();
+</script></body></html>
