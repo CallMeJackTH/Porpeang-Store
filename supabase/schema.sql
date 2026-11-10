@@ -70,7 +70,7 @@ returns boolean language sql stable security definer set search_path = public as
   select exists (
     select 1 from public.room_members m
     join public.game_rooms r on r.id = m.room_id
-    where r.code = p_code and m.user_id = auth.uid() and r.expires_at > now()
+    where r.room_code = p_code and m.user_id = auth.uid() and r.expires_at > now()
   );
 $$;
 
