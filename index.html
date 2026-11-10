@@ -688,7 +688,7 @@ hud();sz();loop();mmOpen();
 'use strict';
 const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const av=u=>{u=String(u||'');return /^https:\/\/[^\s'")]+$/.test(u)?`style="background-image:url('${esc(encodeURI(u))}')"`:''};
-const ERR={unauthorized:'กรุณาเข้าสู่ระบบอีกครั้ง',not_found:'ไม่พบห้อง หรือห้องหมดอายุแล้ว',full:'ห้องเต็ม (สูงสุด 4 คน)',bad_code:'รหัสห้องต้องมี 6 ตัวอักษร',missing_env:'ยังไม่ได้ตั้งค่า Supabase บนเซิร์ฟเวอร์',net:'เชื่อมต่อไม่ได้ ตรวจอินเทอร์เน็ตแล้วลองใหม่'};
+const ERR={unauthorized:'กรุณาเข้าสู่ระบบอีกครั้ง',not_found:'ไม่พบห้อง หรือห้องหมดอายุแล้ว',full:'ห้องเต็ม (สูงสุด 4 คน)',bad_code:'รหัสห้องต้องมี 6 ตัวอักษร',not_host:'เฉพาะหัวหน้าห้องเท่านั้นที่กดเริ่มเล่นได้',not_member:'คุณไม่ได้อยู่ในห้องนี้แล้ว',not_started:'หัวหน้าห้องยังไม่ได้เริ่มเล่น',busy:'เซิร์ฟเวอร์ยุ่งอยู่ ลองใหม่อีกครั้ง',invalid_state:'ข้อมูลร้านของหัวหน้าห้องไม่ถูกต้อง',missing_env:'ยังไม่ได้ตั้งค่า Supabase บนเซิร์ฟเวอร์',net:'เชื่อมต่อไม่ได้ ตรวจอินเทอร์เน็ตแล้วลองใหม่'};
 const em=e=>ERR[e&&e.code]||'เกิดข้อผิดพลาด ลองใหม่อีกครั้ง';
 
 let sb=null,cfg=null,user=null,token='',ready=false,booting=null;
@@ -819,11 +819,12 @@ async function restore(){
   try{
     const r=await api('/api/save');
     const foreign=ls('ppuid')&&ls('ppuid')!==user.id;
+    const sh=ls('ppsh');if(sh)ls('ppsh','');
     const cs=r.save&&r.save.state;
     if(r.save&&r.save.settings){const t=r.save.settings;if(t.sens)CFG.sens=Math.max(.4,Math.min(2.5,+t.sens||1));CFG.inv=t.inv?1:0;cfgSave()}
     ls('ppuid',user.id);
     if(cs){
-      const hasLocal=!foreign&&(S.d>1||S.sold>0)&&(cs.m!==S.m||cs.d!==S.d);
+      const hasLocal=!foreign&&!sh&&(S.d>1||S.sold>0)&&(cs.m!==S.m||cs.d!==S.d);
       if(hasLocal){
         ready=false;lgHide();
         md(`<h2>☁ พบข้อมูลบนคลาวด์</h2><div class="row"><span>☁ คลาวด์</span><span>วันที่ ${cs.d} · ${B(cs.m)}</span></div><div class="row"><span>📱 ในเครื่อง</span><span>วันที่ ${S.d} · ${B(S.m)}</span></div><p class="hint">เลือกข้อมูลที่ต้องการใช้ต่อ</p><div class="mb"><button class="bt g" onclick="CLX.pick(1)">ใช้ข้อมูลคลาวด์</button><button class="bt" onclick="CLX.pick(0)">ใช้ข้อมูลในเครื่อง</button></div>`);
@@ -831,7 +832,7 @@ async function restore(){
         return;
       }
       applyState(cs);
-    }else if(foreign){applyState(fresh())}
+    }else if(foreign||sh){applyState(fresh())}
     ready=true;
     start();
   }catch(e){ready=false;lgStatus('โหลดข้อมูลผู้เล่นไม่สำเร็จ กำลังลองใหม่อัตโนมัติ…');setTimeout(()=>{if(user&&!ready)restore()},8000)}
@@ -843,7 +844,7 @@ function start(){
   toast('☁ ยินดีต้อนรับ '+player.username+' · เซฟอัตโนมัติ');
 }
 async function flush(force,keep){
-  if(!sb||!user||!ready)return;
+  if(!sb||!user||!ready||MP.shared)return;
   const body=JSON.stringify({state:S,settings:{sens:CFG.sens,inv:CFG.inv},reset:resetFlag?1:0});
   const h=body.length+'|'+JSON.stringify(S);
   if(!force&&h===lastHash)return;
@@ -925,7 +926,7 @@ const hash=s=>{let h=0;for(let i=0;i<s.length;i++)h=(h*31+s.charCodeAt(i))|0;ret
 const lookOf=id=>{const h=hash(id);return{c:SH[h%SH.length],s:SK[(h>>3)%SK.length],p:PN[(h>>5)%PN.length],h:HR[(h>>7)%HR.length]}};
 function peerOf(id){let p=MP.peers[id];if(!p)p=MP.peers[id]={id,x:0,z:0,tx:0,tz:0,f:0,m:0,walk:0,seen:0,init:0,L:lookOf(id),name:'Player'};return p}
 async function mpRestore(){try{const j=await api('/api/room?action=current');if(j.room)mpEnter(j.room,j.members)}catch(e){}}
-function mpEnter(room,members){MP.room=room;MP.members=members||[];ls('ppr2',room.code);mpConnect();mpRender()}
+function mpEnter(room,members){MP.room=room;MP.members=members||[];ls('ppr2',room.code);mpConnect();mpRender();if(room.playing&&!MP.shared)mpFetchShared()}
 function mpConnect(){
   mpDrop();
   if(!sb||!user||!MP.room)return;
@@ -943,6 +944,8 @@ function mpConnect(){
       const ch=sb.channel('room:'+code,{config:{private:true,broadcast:{self:false},presence:{key:user.id}}});
       ch.on('broadcast',{event:'pos'},({payload})=>{if(!payload||payload.id===user.id)return;const p=peerOf(payload.id);p.tx=+payload.x||0;p.tz=+payload.z||0;p.f=payload.f?1:0;p.m=payload.m?1:0;p.seen=Date.now();if(!p.init){p.x=p.tx;p.z=p.tz;p.init=1}})
         .on('broadcast',{event:'act'},({payload})=>onAct(payload))
+        .on('broadcast',{event:'start'},()=>mpCheck())
+        .on('broadcast',{event:'sync'},()=>{clearTimeout(MP.pullT);MP.pullT=setTimeout(mpSync,150)})
         .on('presence',{event:'sync'},onSync)
         .on('presence',{event:'join'},()=>refreshMembers())
         .on('presence',{event:'leave'},()=>refreshMembers());
@@ -991,11 +994,13 @@ async function mpCheck(force){
     const j=await api('/api/room?action=current');
     if(!j.room){if(MP.room){mpLeave(true);toast('👥 ห้องหมดอายุแล้ว');mpRender()}return}
     if(!MP.room||MP.room.code!==j.room.code){MP.room=j.room;MP.members=j.members;mpConnect()}
-    else{MP.members=j.members;if(force||MP.st!=='on')mpConnect()}
+    else{MP.members=j.members;MP.room.playing=j.room.playing;if(force||MP.st!=='on')mpConnect()}
     mpRender();
+    if(j.room.playing&&!MP.shared)mpFetchShared();
   }catch(e){if(MP.room){MP.st='retry';mpRender();mpRetry()}}
 }
 setInterval(()=>{if(MP.room)mpCheck()},60000);
+setInterval(()=>{if(MP.room&&!MP.shared&&!MP.entering&&!document.hidden)mpCheck()},4000);   // รอหัวหน้าห้องกดเริ่ม
 function onSync(){
   if(!MP.ch)return;const s=MP.ch.presenceState(),o={};
   Object.keys(s).forEach(k=>{if(s[k]&&s[k][0])o[k]=s[k][0]});
@@ -1048,6 +1053,69 @@ window.MPT=function(f){
   for(const id in MP.peers){const p=MP.peers[id];if(!p.init||(p.f?1:0)!==f)continue;
     txt(p.x,2.05,p.z,p.name,.12,'#a8ff8a')}
 };
+/* ---------- เล่นร่วมกัน: ทุกคนในห้องใช้เงิน/ของ/ฟาร์มเดียวกัน ---------- */
+// ต้นแบบมาจากข้อมูลร้านของหัวหน้าห้อง เก็บไว้ที่ห้อง (จำไว้ตลอดอายุห้อง) ไม่แตะเซฟส่วนตัวของใคร
+const SHK=['plots','nest','hens','coop','emp','ev','pr','tr','wv','d'];
+const JS=o=>JSON.stringify(o),dup=o=>o==null?o:JSON.parse(JSON.stringify(o));
+Object.assign(MP,{shared:0,base:null,ver:0,syncing:0,entering:0,lastSync:0,pullT:0});
+function shDiff(){
+  const b=MP.base;if(!b)return null;
+  const d={m:Math.round(S.m-b.m),sold:(S.sold||0)-(b.sold||0),st:{}},set={};let any=!!(d.m||d.sold);
+  I.forEach(i=>{const x=S.st[i.k]-(b.st[i.k]||0);if(x){d.st[i.k]=x;any=true}});
+  SHK.forEach(k=>{if(JS(S[k])!==JS(b[k])){set[k]=dup(S[k]);any=true}});
+  return any?{delta:d,set}:null;
+}
+async function mpSync(){
+  if(!MP.shared||MP.syncing||!MP.room||!user||!MP.base)return;
+  MP.syncing=1;
+  const ch=shDiff(),snap={m:S.m,sold:S.sold||0,st:dup(S.st)};SHK.forEach(k=>{snap[k]=JS(S[k])});
+  try{
+    const j=await post('/api/room',Object.assign({action:'sync',since:MP.ver},ch||{}));
+    if(j.state){
+      const M=j.state;
+      S.m=Math.max(0,M.m+(S.m-snap.m));S.sold=(M.sold||0)+((S.sold||0)-snap.sold);
+      I.forEach(i=>{const k=i.k;S.st[k]=Math.max(0,(M.st[k]||0)+(S.st[k]-snap.st[k]))});
+      SHK.forEach(k=>{if(JS(S[k])===snap[k]&&M[k]!==undefined)S[k]=dup(M[k])});   // ถ้าเราเพิ่งแก้ระหว่างส่ง ให้ส่งรอบหน้า
+      MP.base=dup(M);MP.ver=j.version;hud();
+    }else if(j.unchanged)MP.ver=j.version;
+    MP.lastSync=Date.now();
+    if(ch&&MP.ch&&MP.st==='on'){try{MP.ch.send({type:'broadcast',event:'sync',payload:{id:user.id}})}catch(e){}}
+  }catch(e){
+    if(e&&(e.code==='not_member'||e.code==='not_started')&&MP.room){MP.syncing=0;mpCheck();return}
+  }
+  MP.syncing=0;
+}
+setInterval(()=>{if(MP.shared&&MP.room&&(shDiff()||Date.now()-MP.lastSync>8000))mpSync()},2500);
+async function mpGoShared(st,ver){
+  if(MP.shared||!st)return;
+  await flush(true);                                  // เซฟข้อมูลส่วนตัวก่อนเข้าโลกร่วม
+  MP.shared=1;MP.base=dup(st);MP.ver=ver||0;MP.lastSync=Date.now();ls('ppsh','1');
+  applyState(dup(st));cl();if(paused)mmPlay();
+  toast('🎮 เริ่มเล่นด้วยกัน! เงินและของทุกอย่างใช้ร่วมกันทั้งห้อง');
+  mpRender();
+}
+async function mpFetchShared(){
+  if(MP.shared||MP.entering||!MP.room)return;
+  MP.entering=1;
+  try{const j=await api('/api/room?action=state');await mpGoShared(j.state,j.version)}catch(e){}
+  MP.entering=0;
+}
+async function mpExitShared(){
+  // คืนข้อมูลส่วนตัว (MP.shared ยังเป็น 1 จนกว่าจะโหลดสำเร็จ เพื่อไม่ให้โลกร่วมไปทับเซฟส่วนตัว)
+  if(!user||!sb){MP.shared=0;MP.base=null;return}
+  try{
+    const r=await api('/api/save'),cs=r.save&&r.save.state;
+    applyState(cs?cs:fresh());MP.shared=0;MP.base=null;ls('ppsh','');
+    toast('กลับสู่ร้านส่วนตัวของคุณ');
+  }catch(e){setTimeout(()=>{if(MP.shared&&!MP.room)mpExitShared()},5000)}
+}
+X.start=()=>mpDo(async()=>{
+  await flush(true);                                  // ให้เซฟล่าสุดของหัวหน้าห้องเป็นต้นแบบ
+  const j=await post('/api/room',{action:'start',state:S});
+  MP.room=j.room;MP.members=j.members||MP.members;
+  if(MP.ch&&MP.st==='on'){try{MP.ch.send({type:'broadcast',event:'start',payload:{id:user.id}})}catch(e){}}
+  await mpGoShared(j.state,j.version);
+});
 /* ---------- แผงห้อง ---------- */
 const mpOpen=()=>!!document.querySelector('#mc [data-mp]');
 function mpRender(){if(!mpOpen())return;const c=$('mc');const sc=c.scrollTop;const rc0=document.getElementById('rc'),rv=rc0?rc0.value:'';c.innerHTML='<button class="mx" onclick="cl()">✕</button>'+mpHtml();c.scrollTop=sc;const rc1=document.getElementById('rc');if(rc1&&rv)rc1.value=rv}
@@ -1061,7 +1129,9 @@ function mpHtml(){
     return `<div class="row"><span class="who"><span class="dot ${on?'on':''}"></span><span class="av" ${av(m.avatar)}></span><b>${esc(m.name)}${self?' (คุณ)':''}${MP.room.host===m.id?' 👑':''}</b></span><span>${B(money)}<br><small>${loc} · วัน ${day}</small></span></div>`}).join('');
   const feed=MP.feed.length?`<p class="hint" style="margin-top:8px"><b>ความเคลื่อนไหว</b><br>${MP.feed.map(f=>esc(f.n)+' '+esc(f.t)).join('<br>')}</p>`:'';
   const stt=MP.st==='on'?'':`<div class="warn" style="margin:6px 0">${MP.st==='retry'?'⚠️ การเชื่อมต่อหลุด กำลังเชื่อมต่อใหม่…':'กำลังเชื่อมต่อ…'}</div>`;
-  return w+`<h2>👥 ห้อง<small>${MP.members.length}/4 คน</small></h2><div class="code">${esc(MP.room.code)}</div><div class="mb" style="margin-top:0"><button class="bt g" onclick="CLX.share()">📤 แชร์รหัส</button><button class="bt" onclick="CLX.copy()">📋 คัดลอก</button></div>${stt}${msg}${rows}${feed}<div class="mb"><button class="bt r" onclick="CLX.leave()">ออกจากห้อง</button><button class="bt" onclick="cl()">ปิด</button></div>`}
+  const host=MP.room.host===user.id;
+  const ctl=MP.shared?'<p class="hint" style="margin:6px 0">🎮 กำลังเล่นร่วมกัน · เงิน ของ และฟาร์มใช้ร่วมกันทั้งห้อง</p>':host?`<div class="mb" style="margin:8px 0"><button class="bt g" ${MP.busy?'disabled':''} onclick="CLX.start()">▶ เริ่มเล่นด้วยกัน</button></div><p class="hint" style="margin:0 0 6px">กดแล้วทุกคนในห้องจะเข้าแมพเดียวกัน ใช้ข้อมูลร้านของคุณเป็นต้นแบบ และแชร์เงิน/ของร่วมกัน</p>`:'<p class="hint" style="margin:8px 0">⏳ รอหัวหน้าห้อง 👑 กดเริ่มเล่น…</p>';
+  return w+`<h2>👥 ห้อง<small>${MP.members.length}/4 คน</small></h2><div class="code">${esc(MP.room.code)}</div><div class="mb" style="margin-top:0"><button class="bt g" onclick="CLX.share()">📤 แชร์รหัส</button><button class="bt" onclick="CLX.copy()">📋 คัดลอก</button></div>${ctl}${stt}${msg}${rows}${feed}<div class="mb"><button class="bt r" onclick="CLX.leave()">ออกจากห้อง</button><button class="bt" onclick="cl()">ปิด</button></div>`}
 X.mp=async function(){
   MP.msg='';md('<div data-mp="1"></div>');mpRender();
   if(!(await boot())){MP.msg=ERR.net;mpRender();return}
@@ -1070,8 +1140,8 @@ X.mp=async function(){
 async function mpDo(fn){if(MP.busy)return;MP.busy=1;MP.msg='';mpRender();try{await fn()}catch(e){MP.msg=em(e);if(e.code==='unauthorized'){try{await sb.auth.refreshSession()}catch(_){}}}MP.busy=0;mpRender()}
 X.create=()=>mpDo(async()=>{const j=await post('/api/room',{action:'create'});mpEnter(j.room,j.members);toast('👥 สร้างห้องแล้ว ส่งรหัสให้เพื่อนได้เลย')});
 X.join=()=>{const el=document.getElementById('rc'),raw=(el?el.value:'').trim(),code=raw.toUpperCase().replace(/[^A-Z0-9]/g,'');if(code.length!==6){MP.msg=raw?('รหัสห้องต้องเป็นตัวอักษรอังกฤษ A–Z หรือเลข 0–9 ครบ 6 ตัว (อ่านได้ '+code.length+' ตัว) — ลองสลับคีย์บอร์ดเป็นภาษาอังกฤษ'):'กรุณากรอกรหัสห้อง 6 ตัว';mpRender();return}return mpDo(async()=>{const j=await post('/api/room',{action:'join',code});mpEnter(j.room,j.members);toast('👥 เข้าห้องแล้ว')})};
-X.leave=()=>mpDo(async()=>{await post('/api/room',{action:'leave'});mpLeave(true)});
-function mpLeave(local){clearTimeout(MP.rt);mpDrop();MP.room=null;MP.members=[];MP.feed=[];MP.st='off';ls('ppr2','')}
+X.leave=()=>mpDo(async()=>{await mpSync();await post('/api/room',{action:'leave'});mpLeave(true)});
+function mpLeave(local){clearTimeout(MP.rt);clearTimeout(MP.pullT);mpDrop();MP.room=null;MP.members=[];MP.feed=[];MP.st='off';ls('ppr2','');if(MP.shared)mpExitShared()}
 X.copy=async function(){if(!MP.room)return;try{await navigator.clipboard.writeText(MP.room.code);toast('📋 คัดลอกรหัสห้องแล้ว')}catch(e){toast('รหัสห้อง: '+MP.room.code)}};
 X.share=async function(){if(!MP.room)return;const t=`มาเล่นร้านเพียงพอด้วยกัน! รหัสห้อง: ${MP.room.code}\n${location.origin}`;if(navigator.share){try{await navigator.share({title:'ร้านเพียงพอ',text:t});return}catch(e){if(e&&e.name==='AbortError')return}}X.copy()};
 
