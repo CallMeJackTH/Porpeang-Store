@@ -919,7 +919,7 @@ X.lb=async function(){
 };
 
 /* ---------- Multiplayer ---------- */
-const MP={room:null,members:[],ch:null,online:{},peers:{},feed:[],st:'off',bo:0,rt:0,lastPos:0,lastSig:'',lastTrack:'',busy:0,msg:''};
+const MP={room:null,members:[],ch:null,online:{},peers:{},feed:[],st:'off',bo:0,rt:0,connTimer:0,connSeq:0,lastPos:0,lastSig:'',lastTrack:'',busy:0,msg:''};
 const ST=()=>({id:user.id,name:me().name,avatar:me().avatar,money:Math.round(S.m),day:S.d,f:inF?1:0,ev:S.ev?S.ev.t:''});
 const hash=s=>{let h=0;for(let i=0;i<s.length;i++)h=(h*31+s.charCodeAt(i))|0;return Math.abs(h)};
 const lookOf=id=>{const h=hash(id);return{c:SH[h%SH.length],s:SK[(h>>3)%SK.length],p:PN[(h>>5)%PN.length],h:HR[(h>>7)%HR.length]}};
@@ -927,22 +927,63 @@ function peerOf(id){let p=MP.peers[id];if(!p)p=MP.peers[id]={id,x:0,z:0,tx:0,tz:
 async function mpRestore(){try{const j=await api('/api/room?action=current');if(j.room)mpEnter(j.room,j.members)}catch(e){}}
 function mpEnter(room,members){MP.room=room;MP.members=members||[];ls('ppr2',room.code);mpConnect();mpRender()}
 function mpConnect(){
-  mpDrop();if(!sb||!user||!MP.room)return;
-  const code=MP.room.code;MP.st='connecting';
-  const ch=sb.channel('room:'+code,{config:{private:true,broadcast:{self:false},presence:{key:user.id}}});
-  ch.on('broadcast',{event:'pos'},({payload})=>{if(!payload||payload.id===user.id)return;const p=peerOf(payload.id);p.tx=+payload.x||0;p.tz=+payload.z||0;p.f=payload.f?1:0;p.m=payload.m?1:0;p.seen=Date.now();if(!p.init){p.x=p.tx;p.z=p.tz;p.init=1}})
-    .on('broadcast',{event:'act'},({payload})=>onAct(payload))
-    .on('presence',{event:'sync'},onSync)
-    .on('presence',{event:'join'},()=>refreshMembers())
-    .on('presence',{event:'leave'},()=>refreshMembers())
-    .subscribe(s=>{
-      if(MP.ch!==ch)return;
-      if(s==='SUBSCRIBED'){MP.st='on';MP.bo=0;MP.lastTrack='';trackNow(true);refreshMembers();mpRender()}
-      else if(s==='CHANNEL_ERROR'||s==='TIMED_OUT'||s==='CLOSED'){MP.st='retry';mpRender();mpRetry()}
-    });
-  MP.ch=ch;
+  mpDrop();
+  if(!sb||!user||!MP.room)return;
+  const seq=MP.connSeq,code=MP.room.code;
+  MP.st='connecting';MP.msg='';mpRender();
+  (async()=>{
+    try{
+      // Explicitly pass the current signed-in user's JWT to Supabase Realtime.
+      const sessionResult=await sb.auth.getSession();
+      const accessToken=sessionResult&&sessionResult.data&&sessionResult.data.session&&sessionResult.data.session.access_token;
+      if(!accessToken)throw new Error('missing_realtime_session');
+      await sb.realtime.setAuth(accessToken);
+      if(seq!==MP.connSeq||!MP.room||MP.room.code!==code)return;
+
+      const ch=sb.channel('room:'+code,{config:{private:true,broadcast:{self:false},presence:{key:user.id}}});
+      ch.on('broadcast',{event:'pos'},({payload})=>{if(!payload||payload.id===user.id)return;const p=peerOf(payload.id);p.tx=+payload.x||0;p.tz=+payload.z||0;p.f=payload.f?1:0;p.m=payload.m?1:0;p.seen=Date.now();if(!p.init){p.x=p.tx;p.z=p.tz;p.init=1}})
+        .on('broadcast',{event:'act'},({payload})=>onAct(payload))
+        .on('presence',{event:'sync'},onSync)
+        .on('presence',{event:'join'},()=>refreshMembers())
+        .on('presence',{event:'leave'},()=>refreshMembers());
+
+      MP.ch=ch;
+      // Do not leave the UI stuck on "connecting" if Realtime never responds.
+      MP.connTimer=setTimeout(()=>{
+        if(MP.ch!==ch||MP.st!=='connecting')return;
+        MP.st='retry';
+        MP.msg='เชื่อมต่อห้องไม่สำเร็จ กรุณาตรวจสอบว่าได้รัน supabase/fix_room_realtime.sql แล้ว';
+        try{sb.removeChannel(ch)}catch(e){}
+        MP.ch=null;mpRender();mpRetry();
+      },12000);
+
+      ch.subscribe(status=>{
+        if(MP.ch!==ch)return;
+        if(status==='SUBSCRIBED'){
+          clearTimeout(MP.connTimer);MP.connTimer=0;
+          MP.st='on';MP.bo=0;MP.msg='';MP.lastTrack='';
+          trackNow(true);refreshMembers();mpRender();
+        }else if(status==='CHANNEL_ERROR'||status==='TIMED_OUT'||status==='CLOSED'){
+          clearTimeout(MP.connTimer);MP.connTimer=0;
+          MP.st='retry';
+          MP.msg='เชื่อมต่อห้องไม่สำเร็จ ('+status+') ตรวจสอบ Realtime และ SQL สำหรับสิทธิ์สมาชิกห้อง';
+          mpRender();mpRetry();
+        }
+      });
+    }catch(error){
+      if(seq!==MP.connSeq)return;
+      clearTimeout(MP.connTimer);MP.connTimer=0;
+      MP.st='retry';
+      MP.msg='ตั้งค่าการเชื่อมต่อห้องไม่สำเร็จ กรุณาเข้าสู่ระบบใหม่และตรวจสอบ Realtime SQL';
+      mpRender();mpRetry();
+    }
+  })();
 }
-function mpDrop(){clearTimeout(MP.rt);if(MP.ch){try{sb.removeChannel(MP.ch)}catch(e){}MP.ch=null}MP.online={};MP.peers={}}
+function mpDrop(){
+  clearTimeout(MP.rt);clearTimeout(MP.connTimer);MP.connTimer=0;MP.connSeq++;
+  if(MP.ch){try{sb.removeChannel(MP.ch)}catch(e){}MP.ch=null}
+  MP.online={};MP.peers={}
+}
 function mpRetry(){clearTimeout(MP.rt);MP.bo=Math.min(MP.bo+1,6);MP.rt=setTimeout(async()=>{if(!MP.room)return;await mpCheck(true)},Math.min(30000,1000*Math.pow(2,MP.bo)))}
 async function mpCheck(force){
   if(!user||!sb)return;
