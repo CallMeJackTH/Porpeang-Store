@@ -1069,7 +1069,7 @@ X.mp=async function(){
 };
 async function mpDo(fn){if(MP.busy)return;MP.busy=1;MP.msg='';mpRender();try{await fn()}catch(e){MP.msg=em(e);if(e.code==='unauthorized'){try{await sb.auth.refreshSession()}catch(_){}}}MP.busy=0;mpRender()}
 X.create=()=>mpDo(async()=>{const j=await post('/api/room',{action:'create'});mpEnter(j.room,j.members);toast('👥 สร้างห้องแล้ว ส่งรหัสให้เพื่อนได้เลย')});
-X.join=()=>mpDo(async()=>{const el=document.getElementById('rc'),code=(el?el.value:'').trim().toUpperCase();const j=await post('/api/room',{action:'join',code});mpEnter(j.room,j.members);toast('👥 เข้าห้องแล้ว')});
+X.join=()=>{const el=document.getElementById('rc'),code=(el?el.value:'').trim().toUpperCase().replace(/[^A-Z0-9]/g,'');return mpDo(async()=>{const j=await post('/api/room',{action:'join',code});mpEnter(j.room,j.members);toast('👥 เข้าห้องแล้ว')})};
 X.leave=()=>mpDo(async()=>{await post('/api/room',{action:'leave'});mpLeave(true)});
 function mpLeave(local){clearTimeout(MP.rt);mpDrop();MP.room=null;MP.members=[];MP.feed=[];MP.st='off';ls('ppr2','')}
 X.copy=async function(){if(!MP.room)return;try{await navigator.clipboard.writeText(MP.room.code);toast('📋 คัดลอกรหัสห้องแล้ว')}catch(e){toast('รหัสห้อง: '+MP.room.code)}};
