@@ -1,4 +1,4 @@
-const { admin, authUser, body } = require('./_lib/sb');
+const { admin, authPlayer, body } = require('./_lib/sb');
 
 // Server-side limits. Money may grow only as fast as the game can legitimately produce it.
 const MAX_MONEY = 1e9;
@@ -61,7 +61,7 @@ function wealthOf(s) {
 module.exports = async (req, res) => {
   try {
     const db = admin();
-    const user = await authUser(req, db);
+    const user = await authPlayer(req, db);
     if (!user) return res.status(401).json({ error: 'unauthorized' });
 
     if (req.method === 'GET') {
@@ -111,9 +111,8 @@ module.exports = async (req, res) => {
     if (e2) return res.status(500).json({ error: 'db' });
 
     // Leaderboard is written only here (service role). Clients cannot touch it.
-    const meta = user.user_metadata || {};
-    const name = String(meta.full_name || meta.name || (user.email || 'Player').split('@')[0]).slice(0, 40);
-    const avatar = String(meta.avatar_url || meta.picture || '').slice(0, 500);
+    const name = user.username;
+    const avatar = '';
     const { error: e3 } = await db.from('leaderboard').upsert({
       user_id: user.id, display_name: name, avatar_url: avatar,
       money: finalState.m, wealth, updated_at: new Date().toISOString()

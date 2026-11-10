@@ -1,4 +1,4 @@
-const { admin, authUser, body } = require('./_lib/sb');
+const { admin, authPlayer, body } = require('./_lib/sb');
 
 const ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const MAX_MEMBERS = 8;
@@ -10,13 +10,7 @@ const genCode = () => {
   for (let i = 0; i < 6; i++) c += ALPHABET[a[i] % ALPHABET.length];
   return c;
 };
-const profileOf = u => {
-  const m = u.user_metadata || {};
-  return {
-    name: String(m.full_name || m.name || (u.email || 'Player').split('@')[0]).slice(0, 40),
-    avatar: String(m.avatar_url || m.picture || '').slice(0, 500)
-  };
-};
+const profileOf = u => ({ name: String(u.username).slice(0, 40), avatar: '' });
 
 async function members(db, roomId) {
   const { data } = await db.from('room_members').select('user_id,display_name,avatar_url,joined_at').eq('room_id', roomId).order('joined_at');
@@ -36,7 +30,7 @@ async function members(db, roomId) {
 module.exports = async (req, res) => {
   try {
     const db = admin();
-    const user = await authUser(req, db);
+    const user = await authPlayer(req, db);
     if (!user) return res.status(401).json({ error: 'unauthorized' });
     const b = req.method === 'POST' ? body(req) : (req.query || {});
     const action = b.action;

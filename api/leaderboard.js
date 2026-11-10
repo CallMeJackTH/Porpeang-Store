@@ -1,4 +1,4 @@
-const { admin, authUser } = require('./_lib/sb');
+const { admin, authPlayer } = require('./_lib/sb');
 
 module.exports = async (req, res) => {
   try {
@@ -10,7 +10,7 @@ module.exports = async (req, res) => {
     const rows = (data || []).map((r, i) => ({ rank: i + 1, id: r.user_id, name: r.display_name, avatar: r.avatar_url, money: r.money, wealth: r.wealth }));
 
     let me = null;
-    const user = await authUser(req, db);
+    const user = await authPlayer(req, db);
     if (user) {
       const { data: mine } = await db.from('leaderboard').select('money,wealth').eq('user_id', user.id).maybeSingle();
       if (mine) {
