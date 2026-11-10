@@ -1,4 +1,5 @@
 const { admin, authPlayer, body } = require('./_lib/sb');
+const { cleanState, applyChange } = require('./_lib/gamestate');
 
 const ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const DEFAULT_MAX_MEMBERS = 4;
@@ -79,7 +80,8 @@ function roomPayload(room) {
     id: room.id,
     code: room.room_code,
     host: room.owner_id,
-    expires_at: room.expires_at
+    expires_at: room.expires_at,
+    playing: room.status === 'playing'
   };
 }
 
@@ -87,6 +89,20 @@ async function sendRoom(res, db, room) {
   const result = await getMembers(db, room.id);
   if (result.error) return dbFailure(res, 'load_members', result.error);
   return res.status(200).json({ room: roomPayload(room), members: result.data });
+}
+
+// The room (still alive) that the caller belongs to.
+async function myRoom(db, userId, nowIso) {
+  const { data: m, error: e1 } = await db.from('room_members').select('room_id').eq('user_id', userId).limit(1).maybeSingle();
+  if (e1) return { error: e1 };
+  if (!m) return { room: null };
+  const { data: room, error: e2 } = await db.from('game_rooms').select('*').eq('id', m.room_id).gt('expires_at', nowIso).maybeSingle();
+  if (e2) return { error: e2 };
+  return { room: room || null };
+}
+
+function extendedExpiry(now) {
+  return new Date(now.getTime() + ROOM_TTL_H * 3600 * 1000).toISOString();
 }
 
 module.exports = async (req, res) => {
@@ -185,7 +201,7 @@ module.exports = async (req, res) => {
         .from('game_rooms')
         .select('*')
         .eq('room_code', code)
-        .eq('status', 'waiting')
+        .in('status', ['waiting', 'playing'])
         .gt('expires_at', nowIso)
         .maybeSingle();
 
@@ -344,6 +360,103 @@ module.exports = async (req, res) => {
       }
 
       return res.status(200).json({ ok: true });
+    }
+
+    if (action === 'start') {
+      // Host only: put the whole room into one shared world, seeded from the host's own save.
+      const mine = await myRoom(db, user.id, nowIso);
+      if (mine.error) return dbFailure(res, 'find_my_room', mine.error);
+      if (!mine.room) return res.status(403).json({ error: 'not_member' });
+      const room = mine.room;
+      if (room.owner_id !== user.id) return res.status(403).json({ error: 'not_host' });
+
+      let { data: rs, error: rsError } = await db.from('room_states').select('state,version').eq('room_id', room.id).maybeSingle();
+      if (rsError) return dbFailure(res, 'load_room_state', rsError);
+
+      if (!rs) {
+        const { data: save, error: saveError } = await db.from('player_saves').select('state').eq('user_id', user.id).maybeSingle();
+        if (saveError) return dbFailure(res, 'load_host_save', saveError);
+        let st = save && save.state ? cleanState(save.state) : null;
+        if (!st) {
+          st = cleanState(b.state);
+          if (st) {
+            const cap = 5000 + st.d * 50000;
+            if (st.m > cap) st.m = cap;
+          }
+        }
+        if (!st) return res.status(400).json({ error: 'invalid_state' });
+
+        const { error: insError } = await db.from('room_states')
+          .upsert({ room_id: room.id, state: st, version: 1, updated_by: user.id, updated_at: nowIso },
+            { onConflict: 'room_id', ignoreDuplicates: true });
+        if (insError) return dbFailure(res, 'create_room_state', insError);
+
+        const again = await db.from('room_states').select('state,version').eq('room_id', room.id).maybeSingle();
+        if (again.error || !again.data) return dbFailure(res, 'reload_room_state', again.error || { message: 'missing' });
+        rs = again.data;
+      }
+
+      const expires = extendedExpiry(now);
+      const { error: updError } = await db.from('game_rooms').update({ status: 'playing', expires_at: expires }).eq('id', room.id);
+      if (updError) return dbFailure(res, 'start_room', updError);
+
+      const result = await getMembers(db, room.id);
+      if (result.error) return dbFailure(res, 'load_members', result.error);
+      return res.status(200).json({
+        room: roomPayload(Object.assign({}, room, { status: 'playing', expires_at: expires })),
+        members: result.data,
+        state: rs.state,
+        version: rs.version
+      });
+    }
+
+    if (action === 'state') {
+      const mine = await myRoom(db, user.id, nowIso);
+      if (mine.error) return dbFailure(res, 'find_my_room', mine.error);
+      if (!mine.room) return res.status(403).json({ error: 'not_member' });
+      const { data: rs, error: rsError } = await db.from('room_states').select('state,version').eq('room_id', mine.room.id).maybeSingle();
+      if (rsError) return dbFailure(res, 'load_room_state', rsError);
+      if (!rs || mine.room.status !== 'playing') return res.status(409).json({ error: 'not_started' });
+      return res.status(200).json({ room: roomPayload(mine.room), state: rs.state, version: rs.version });
+    }
+
+    if (action === 'sync') {
+      // Merge this player's changes (money/stock/sales as deltas, other fields as whole values).
+      const mine = await myRoom(db, user.id, nowIso);
+      if (mine.error) return dbFailure(res, 'find_my_room', mine.error);
+      if (!mine.room) return res.status(403).json({ error: 'not_member' });
+      const room = mine.room;
+      if (room.status !== 'playing') return res.status(409).json({ error: 'not_started' });
+
+      const hasChange = !!(b.delta || b.set);
+      for (let attempt = 0; attempt < 5; attempt++) {
+        const { data: rs, error: rsError } = await db.from('room_states').select('state,version,updated_at').eq('room_id', room.id).maybeSingle();
+        if (rsError) return dbFailure(res, 'load_room_state', rsError);
+        if (!rs) return res.status(409).json({ error: 'not_started' });
+
+        if (!hasChange) {
+          if (Number(b.since) === Number(rs.version)) return res.status(200).json({ unchanged: true, version: rs.version });
+          return res.status(200).json({ state: rs.state, version: rs.version });
+        }
+
+        const secs = (now.getTime() - new Date(rs.updated_at).getTime()) / 1000;
+        const next = applyChange(rs.state, { delta: b.delta, set: b.set }, secs);
+        const { data: upd, error: updError } = await db.from('room_states')
+          .update({ state: next, version: rs.version + 1, updated_by: user.id, updated_at: nowIso })
+          .eq('room_id', room.id)
+          .eq('version', rs.version)
+          .select('version')
+          .maybeSingle();
+        if (updError) return dbFailure(res, 'save_room_state', updError);
+        if (!upd) continue; // someone else wrote first: merge again on top of their result
+
+        // Keep an active room alive.
+        if (new Date(room.expires_at).getTime() - now.getTime() < (ROOM_TTL_H - 1) * 3600 * 1000) {
+          await db.from('game_rooms').update({ expires_at: extendedExpiry(now) }).eq('id', room.id);
+        }
+        return res.status(200).json({ state: next, version: upd.version });
+      }
+      return res.status(409).json({ error: 'busy' });
     }
 
     return res.status(400).json({ error: 'bad_action' });
