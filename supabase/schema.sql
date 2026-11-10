@@ -36,14 +36,17 @@ create table if not exists public.leaderboard (
 create index if not exists leaderboard_wealth_idx on public.leaderboard (wealth desc, updated_at asc);
 
 -- ---------- game_rooms ----------
+-- Column names match api/room.js (room_code / owner_id / max_players / status).
 create table if not exists public.game_rooms (
   id uuid primary key default gen_random_uuid(),
-  code text not null unique check (code ~ '^[A-Z0-9]{6}$'),
-  host_id uuid not null references auth.users(id) on delete cascade,
+  room_code text not null unique check (room_code ~ '^[A-Z0-9]{6}$'),
+  owner_id uuid not null references auth.users(id) on delete cascade,
+  max_players int not null default 4,
+  status text not null default 'waiting',
   created_at timestamptz not null default now(),
   expires_at timestamptz not null default (now() + interval '24 hours')
 );
-create index if not exists game_rooms_host_idx on public.game_rooms (host_id);
+create index if not exists game_rooms_owner_idx on public.game_rooms (owner_id);
 create index if not exists game_rooms_expires_idx on public.game_rooms (expires_at);
 
 -- ---------- room_members ----------
@@ -53,6 +56,7 @@ create table if not exists public.room_members (
   display_name text not null default 'Player',
   avatar_url text not null default '',
   joined_at timestamptz not null default now(),
+  last_seen timestamptz not null default now(),
   primary key (room_id, user_id)
 );
 create index if not exists room_members_user_idx on public.room_members (user_id);
