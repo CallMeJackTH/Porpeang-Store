@@ -688,7 +688,7 @@ hud();sz();loop();mmOpen();
 'use strict';
 const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const av=u=>{u=String(u||'');return /^https:\/\/[^\s'")]+$/.test(u)?`style="background-image:url('${esc(encodeURI(u))}')"`:''};
-const ERR={unauthorized:'กรุณาเข้าสู่ระบบอีกครั้ง',not_found:'ไม่พบห้อง หรือห้องหมดอายุแล้ว',full:'ห้องเต็ม (สูงสุด 8 คน)',bad_code:'รหัสห้องต้องมี 6 ตัวอักษร',missing_env:'ยังไม่ได้ตั้งค่า Supabase บนเซิร์ฟเวอร์',net:'เชื่อมต่อไม่ได้ ตรวจอินเทอร์เน็ตแล้วลองใหม่'};
+const ERR={unauthorized:'กรุณาเข้าสู่ระบบอีกครั้ง',not_found:'ไม่พบห้อง หรือห้องหมดอายุแล้ว',full:'ห้องเต็ม (สูงสุด 4 คน)',bad_code:'รหัสห้องต้องมี 6 ตัวอักษร',missing_env:'ยังไม่ได้ตั้งค่า Supabase บนเซิร์ฟเวอร์',net:'เชื่อมต่อไม่ได้ ตรวจอินเทอร์เน็ตแล้วลองใหม่'};
 const em=e=>ERR[e&&e.code]||'เกิดข้อผิดพลาด ลองใหม่อีกครั้ง';
 
 let sb=null,cfg=null,user=null,token='',ready=false,booting=null;
@@ -1015,12 +1015,12 @@ function mpHtml(){
   if(!user)return w+`<h2>👥 เล่นกับเพื่อน<small>ออนไลน์</small></h2><p class="hint">ต้องเข้าสู่ระบบก่อนจึงจะสร้างหรือเข้าห้องได้</p><div class="mb"><button class="bt g" onclick="cl();CLX.login()">เข้าสู่ระบบ</button><button class="bt" onclick="cl()">ปิด</button></div>`;
   if(!ready)return w+`<h2>👥 เล่นกับเพื่อน<small>ออนไลน์</small></h2><p class="hint">กำลังซิงก์ข้อมูลบัญชี…</p><div class="mb"><button class="bt" onclick="cl()">ปิด</button></div>`;
   const msg=MP.msg?`<div class="warn" style="margin:6px 0">${esc(MP.msg)}</div>`:'';
-  if(!MP.room)return w+`<h2>👥 เล่นกับเพื่อน<small>2–8 คน</small></h2><p class="hint">สร้างห้องส่วนตัวแล้วส่งรหัสให้เพื่อน หรือกรอกรหัสห้องเพื่อเข้าร่วม</p>${msg}<div class="mb"><button class="bt g" ${MP.busy?'disabled':''} onclick="CLX.create()">➕ สร้างห้อง</button></div><input id="rc" class="cd" maxlength="6" placeholder="รหัสห้อง 6 ตัว" autocomplete="off" autocapitalize="characters"><div class="mb"><button class="bt" ${MP.busy?'disabled':''} onclick="CLX.join()">เข้าร่วมห้อง</button><button class="bt" onclick="cl()">ปิด</button></div>`;
+  if(!MP.room)return w+`<h2>👥 เล่นกับเพื่อน<small>สูงสุด 4 คน</small></h2><p class="hint">สร้างห้องส่วนตัวแล้วส่งรหัสให้เพื่อน หรือกรอกรหัสห้องเพื่อเข้าร่วม</p>${msg}<div class="mb"><button class="bt g" ${MP.busy?'disabled':''} onclick="CLX.create()">➕ สร้างห้อง</button></div><input id="rc" class="cd" maxlength="6" placeholder="รหัสห้อง 6 ตัว" autocomplete="off" autocapitalize="characters"><div class="mb"><button class="bt" ${MP.busy?'disabled':''} onclick="CLX.join()">เข้าร่วมห้อง</button><button class="bt" onclick="cl()">ปิด</button></div>`;
   const rows=MP.members.map(m=>{const o=MP.online[m.id],on=!!o,self=m.id===user.id,money=on?o.money:m.money,day=on?o.day:'—',loc=on?(o.f?'🌾 ฟาร์ม':'🏪 ร้าน'):'ออฟไลน์';
     return `<div class="row"><span class="who"><span class="dot ${on?'on':''}"></span><span class="av" ${av(m.avatar)}></span><b>${esc(m.name)}${self?' (คุณ)':''}${MP.room.host===m.id?' 👑':''}</b></span><span>${B(money)}<br><small>${loc} · วัน ${day}</small></span></div>`}).join('');
   const feed=MP.feed.length?`<p class="hint" style="margin-top:8px"><b>ความเคลื่อนไหว</b><br>${MP.feed.map(f=>esc(f.n)+' '+esc(f.t)).join('<br>')}</p>`:'';
   const stt=MP.st==='on'?'':`<div class="warn" style="margin:6px 0">${MP.st==='retry'?'⚠️ การเชื่อมต่อหลุด กำลังเชื่อมต่อใหม่…':'กำลังเชื่อมต่อ…'}</div>`;
-  return w+`<h2>👥 ห้อง<small>${MP.members.length}/8 คน</small></h2><div class="code">${esc(MP.room.code)}</div><div class="mb" style="margin-top:0"><button class="bt g" onclick="CLX.share()">📤 แชร์รหัส</button><button class="bt" onclick="CLX.copy()">📋 คัดลอก</button></div>${stt}${msg}${rows}${feed}<div class="mb"><button class="bt r" onclick="CLX.leave()">ออกจากห้อง</button><button class="bt" onclick="cl()">ปิด</button></div>`}
+  return w+`<h2>👥 ห้อง<small>${MP.members.length}/4 คน</small></h2><div class="code">${esc(MP.room.code)}</div><div class="mb" style="margin-top:0"><button class="bt g" onclick="CLX.share()">📤 แชร์รหัส</button><button class="bt" onclick="CLX.copy()">📋 คัดลอก</button></div>${stt}${msg}${rows}${feed}<div class="mb"><button class="bt r" onclick="CLX.leave()">ออกจากห้อง</button><button class="bt" onclick="cl()">ปิด</button></div>`}
 X.mp=async function(){
   MP.msg='';md('<div data-mp="1"></div>');mpRender();
   if(!(await boot())){MP.msg=ERR.net;mpRender();return}
