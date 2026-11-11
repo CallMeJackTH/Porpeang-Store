@@ -638,9 +638,9 @@ function loop(){cancelAnimationFrame(raf);const f=t=>{const dt=Math.min(.05,(t-l
 const cv=$('fp');let dr=null;const portrait=()=>{try{return matchMedia('(orientation:portrait)').matches}catch(e){return false}};
 const clampP=v=>Math.max(-1.45,Math.min(1.45,v));
 function camSmooth(dt){const k=1-Math.exp(-dt*24),a=ry*k,b=rp*k;ry-=a;rp-=b;yaw+=a;pit=clampP(pit+b);if(Math.abs(ry)<1e-5)ry=0;if(Math.abs(rp)<1e-5)rp=0}
-cv.addEventListener('pointerdown',e=>{dr={x:e.clientX,y:e.clientY};try{cv.setPointerCapture(e.pointerId)}catch(_){}$('hint').style.opacity=0});
+let clk=null;cv.addEventListener('pointerdown',e=>{dr={x:e.clientX,y:e.clientY};clk=e.pointerType=='mouse'&&e.button===0?{x:e.clientX,y:e.clientY,t:performance.now()}:null;try{cv.setPointerCapture(e.pointerId)}catch(_){}$('hint').style.opacity=0});
 cv.addEventListener('pointermove',e=>{if(!dr)return;let mx=e.clientX-dr.x,my=e.clientY-dr.y;dr={x:e.clientX,y:e.clientY};if(portrait()){const a=mx;mx=my;my=-a}ry+=mx*.0065*CFG.sens;rp+=(CFG.inv?1:-1)*my*.005*CFG.sens});
-['pointerup','pointercancel'].forEach(n=>cv.addEventListener(n,()=>{dr=null}));
+['pointerup','pointercancel'].forEach(n=>cv.addEventListener(n,e=>{if(n=='pointerup'&&clk&&e.pointerType=='mouse'&&Math.hypot(e.clientX-clk.x,e.clientY-clk.y)<6&&performance.now()-clk.t<400&&!paused)punch();clk=null;dr=null}));   /* คลิกซ้าย = ต่อย (ลากเมาส์ = หันมอง) */
 const joy=$('joy'),knob=$('knob'),JR=44;let jp=null;
 joy.addEventListener('pointerdown',e=>{jp={x:e.clientX,y:e.clientY};try{joy.setPointerCapture(e.pointerId)}catch(_){}$('hint').style.opacity=0});
 joy.addEventListener('pointermove',e=>{if(!jp)return;let dx=e.clientX-jp.x,dy=e.clientY-jp.y;if(portrait()){const a=dx;dx=dy;dy=-a}const l=Math.hypot(dx,dy),k=l>JR?JR/l:1;dx*=k;dy*=k;jv.x=dx/JR;jv.y=-dy/JR;knob.style.transform=`translate(${dx}px,${dy}px)`});
@@ -942,9 +942,10 @@ function mpConnect(){
       if(seq!==MP.connSeq||!MP.room||MP.room.code!==code)return;
 
       const ch=sb.channel('room:'+code,{config:{private:true,broadcast:{self:false},presence:{key:user.id}}});
-      ch.on('broadcast',{event:'pos'},({payload})=>{if(!payload||payload.id===user.id)return;const p=peerOf(payload.id);p.tx=+payload.x||0;p.tz=+payload.z||0;p.f=payload.f?1:0;p.m=payload.m?1:0;p.seen=Date.now();if(!p.init){p.x=p.tx;p.z=p.tz;p.init=1}})
+      ch.on('broadcast',{event:'pos'},({payload})=>{if(!payload||payload.id===user.id)return;const p=peerOf(payload.id);p.tx=+payload.x||0;p.tz=+payload.z||0;p.f=payload.f?1:0;p.m=payload.m?1:0;if(payload.y!=null)p.ty=+payload.y||0;p.seen=Date.now();if(!p.init){p.x=p.tx;p.z=p.tz;p.yw=p.ty||0;p.init=1}})
         .on('broadcast',{event:'act'},({payload})=>onAct(payload))
         .on('broadcast',{event:'start'},()=>mpCheck())
+        .on('broadcast',{event:'vote'},({payload})=>onVote(payload))
         .on('broadcast',{event:'sync'},()=>{clearTimeout(MP.pullT);MP.pullT=setTimeout(mpSync,150)})
         .on('presence',{event:'sync'},onSync)
         .on('presence',{event:'join'},()=>refreshMembers())
@@ -1004,7 +1005,7 @@ setInterval(()=>{if(MP.room&&!MP.shared&&!MP.entering&&!document.hidden)mpCheck(
 function onSync(){
   if(!MP.ch)return;const s=MP.ch.presenceState(),o={};
   Object.keys(s).forEach(k=>{if(s[k]&&s[k][0])o[k]=s[k][0]});
-  MP.online=o;Object.keys(MP.peers).forEach(k=>{if(!o[k])delete MP.peers[k]});
+  MP.online=o;Object.keys(MP.peers).forEach(k=>{if(!o[k])delete MP.peers[k]});if(MP.vote)voteCheck();
   Object.keys(o).forEach(k=>{if(k!==user.id){const p=peerOf(k);p.name=o[k].name||p.name}});
   mpRender();
 }
@@ -1019,9 +1020,9 @@ function trackNow(force){
 setInterval(()=>trackNow(false),3000);
 setInterval(()=>{
   if(!MP.ch||MP.st!=='on'||paused)return;
-  const n=Date.now(),sig=CAM[0].toFixed(2)+'|'+CAM[2].toFixed(2)+'|'+(inF?1:0)+'|'+(mvAmt>.1?1:0);
+  const n=Date.now(),sig=CAM[0].toFixed(2)+'|'+CAM[2].toFixed(2)+'|'+(inF?1:0)+'|'+(mvAmt>.1?1:0)+'|'+yaw.toFixed(2);
   if(sig===MP.lastSig&&n-MP.lastPos<3000)return;MP.lastSig=sig;MP.lastPos=n;
-  try{MP.ch.send({type:'broadcast',event:'pos',payload:{id:user.id,x:+CAM[0].toFixed(2),z:+CAM[2].toFixed(2),f:inF?1:0,m:mvAmt>.1?1:0}})}catch(e){}
+  try{MP.ch.send({type:'broadcast',event:'pos',payload:{id:user.id,x:+CAM[0].toFixed(2),z:+CAM[2].toFixed(2),f:inF?1:0,m:mvAmt>.1?1:0,y:+yaw.toFixed(3)}})}catch(e){}
 },140);
 function act(kind,val){if(!MP.ch||MP.st!=='on')return;try{MP.ch.send({type:'broadcast',event:'act',payload:{id:user.id,k:kind,v:val||0,x:CAM[0],z:CAM[2],f:inF?1:0}})}catch(e){}}
 const ACT={sell:v=>'ขายได้ +'+B(v),punch:()=>'ต่อยลูกค้า 👊',harvest:()=>'เก็บเกี่ยวผลผลิต 🧺'};
@@ -1041,13 +1042,21 @@ function onAct(p){
 }
 /* วาดผู้เล่นอื่นในฉากเดิม (ใช้ตัวละคร man() เดิม) */
 let lt2=0;
+/* วาดตัวละครหมุนตามทิศที่ผู้เล่นหัน: man() วาดได้เฉพาะแนวแกน จึงวาดด้วยกล้องเสมือนที่หมุนสวนทาง แล้วหมุนหน้าที่ได้กลับ */
+function manR(x,z,o,a){
+  const c=Math.cos(a),s=Math.sin(a),ox=CAM[0]-x,oz=CAM[2]-z,cx=CAM[0],cz=CAM[2],n0=L.length;
+  CAM[0]=x+ox*c+oz*s;CAM[2]=z-ox*s+oz*c;
+  try{man(x,z,o)}finally{CAM[0]=cx;CAM[2]=cz}
+  for(let i=n0;i<L.length;i++){const q=L[i];if(q&&q.p)q.p=q.p.map(p=>{const dx=p[0]-x,dz=p[2]-z;return[x+dx*c-dz*s,p[1],z+dx*s+dz*c]})}
+}
 window.MPD=function(f){
   const ids=Object.keys(MP.peers);if(!ids.length)return;
   const n=performance.now(),dt=Math.min(.1,(n-lt2)/1000||0);lt2=n;
   for(const id of ids){const p=MP.peers[id];if(!p.init||(p.f?1:0)!==f)continue;
     const dx=p.tx-p.x,dz=p.tz-p.z,k=Math.min(1,dt*10);p.x+=dx*k;p.z+=dz*k;
     if(Math.hypot(dx,dz)>.04)p.walk+=dt*9;
-    man(p.x,p.z,{walk:p.walk,ax:Math.abs(dx)>Math.abs(dz),L:p.L,face:false})}
+    let dy=((p.ty||0)-(p.yw||0))%(Math.PI*2);if(dy>Math.PI)dy-=Math.PI*2;if(dy<-Math.PI)dy+=Math.PI*2;p.yw=(p.yw||0)+dy*Math.min(1,dt*12);
+    manR(p.x,p.z,{walk:p.walk,ax:false,L:p.L,face:true},Math.PI-p.yw)}
 };
 window.MPT=function(f){
   for(const id in MP.peers){const p=MP.peers[id];if(!p.init||(p.f?1:0)!==f)continue;
@@ -1116,6 +1125,57 @@ X.start=()=>mpDo(async()=>{
   if(MP.ch&&MP.st==='on'){try{MP.ch.send({type:'broadcast',event:'start',payload:{id:user.id}})}catch(e){}}
   await mpGoShared(j.state,j.version);
 });
+/* ---------- โหวตจบวัน: ทุกคนที่ออนไลน์ในห้องต้องเห็นด้วยทุกคน ---------- */
+const _endDay=window.endDay;
+function voters(){const o=Object.keys(MP.online);if(user&&!o.includes(user.id))o.push(user.id);return o}
+function vsend(t,extra){try{MP.ch.send({type:'broadcast',event:'vote',payload:Object.assign({t,id:user.id,name:me().name},extra||{})})}catch(e){}}
+function voteBox(){
+  let el=document.getElementById('vtbox');
+  if(!el){el=document.createElement('div');el.id='vtbox';const host=$('toast')&&$('toast').parentNode||document.body;host.appendChild(el);
+    el.style.cssText='position:absolute;left:50%;top:calc(112px + env(safe-area-inset-top));transform:translateX(-50%);z-index:25;display:none;background:var(--cream,#f6e8c8);color:var(--ink,#3b2410);border:3px solid var(--ink,#3b2410);border-radius:14px;padding:10px 14px;text-align:center;font-family:Kanit,Sarabun,sans-serif;max-width:92vw;box-shadow:0 4px 0 #0006'}
+  return el;
+}
+function voteRender(){
+  const el=voteBox(),v=MP.vote;
+  if(!v||!user){el.style.display='none';return}
+  const vs=voters(),n=vs.filter(id=>v.yes[id]).length,mine=!!v.yes[user.id];
+  el.style.display='block';
+  el.innerHTML=`<div style="font-weight:700">🌙 ${esc(v.byName)} ขอจบวันที่ ${v.day}</div><div style="font-size:14px;margin:3px 0 6px">โหวตแล้ว ${n}/${vs.length} คน · ต้องเห็นด้วยทุกคน${mine?' · รอเพื่อนโหวต…':''}</div><div style="display:flex;gap:8px;justify-content:center">${mine?'':'<button class="bt g" onclick="CLX.vyes()">✅ จบวัน (Y)</button>'}<button class="bt r" onclick="CLX.vno()">${mine?'✖ ยกเลิก':'❌ ยังก่อน'} (N)</button></div>`;
+}
+function voteEnd(msg){clearTimeout(MP.voteT);MP.vote=null;voteRender();if(msg)toast(msg)}
+function voteStart(v){clearTimeout(MP.voteT);MP.vote=Object.assign({yes:{},done:0},v);MP.voteT=setTimeout(()=>voteEnd('⏱ หมดเวลาโหวต ยังไม่จบวัน'),30000);voteRender()}
+function voteGo(){clearTimeout(MP.voteT);MP.vote=null;voteRender();toast('🌙 ทุกคนเห็นด้วย จบวัน!');_endDay()}
+function voteCheck(){
+  const v=MP.vote;if(!v||v.done)return;
+  if(v.day!==S.d){voteEnd();return}
+  if(voters().every(id=>v.yes[id])){v.done=1;vsend('go',{vid:v.vid});voteGo()}else voteRender();
+}
+X.vyes=()=>{const v=MP.vote;if(!v||!user)return;v.yes[user.id]=1;vsend('yes',{vid:v.vid});voteRender();voteCheck()};
+X.vno=()=>{const v=MP.vote;if(!v)return;vsend('no',{vid:v.vid});voteEnd('❌ ไม่จบวัน (คุณไม่เห็นด้วย)')};
+function onVote(p){
+  if(!p||!user||p.id===user.id||!MP.shared)return;
+  if(p.t==='open'){
+    const mineOpen=MP.vote&&MP.vote.by===user.id;
+    if(MP.vote&&p.vid>=MP.vote.vid)return;                       // โหวตซ้อนกัน: เก็บอันที่ vid น้อยกว่า
+    voteStart({vid:p.vid,by:p.id,byName:p.name||'เพื่อน',day:p.day});MP.vote.yes[p.id]=1;
+    if(mineOpen)X.vyes();else{voteRender();voteCheck()}
+    return;
+  }
+  const v=MP.vote;if(!v||v.vid!==p.vid)return;
+  if(p.t==='yes'){v.yes[p.id]=1;voteRender();voteCheck()}
+  else if(p.t==='no')voteEnd('❌ '+(p.name||'เพื่อน')+' ไม่เห็นด้วย ยังไม่จบวัน');
+  else if(p.t==='go'&&!v.done){v.done=1;voteGo()}
+}
+window.endDay=function(){
+  if(!MP.shared||!MP.room)return _endDay.apply(this,arguments);   // เล่นคนเดียว: จบวันได้เลย
+  if($('night').classList.contains('on'))return;
+  if(MP.st!=='on'||!MP.ch){toast('กำลังเชื่อมต่อห้อง… ลองกดจบวันอีกครั้งในอีกสักครู่');return}
+  if(MP.vote){toast('มีการโหวตจบวันอยู่แล้ว');return}
+  if(typeof wealthyDue==='function'&&wealthyDue())return _endDay.apply(this,arguments);   // เศรษฐีกำลังจะมา: ให้เกมแจ้งเตือนเอง
+  const vid=user.id+'|'+Date.now();
+  voteStart({vid,by:user.id,byName:me().name,day:S.d});vsend('open',{vid,day:S.d});X.vyes();
+};
+addEventListener('keydown',e=>{if(!MP.vote||!MP.shared||e.repeat||e.ctrlKey||e.metaKey||e.altKey||(e.target&&e.target.tagName=='INPUT'))return;const k=(e.key||'').toLowerCase();if(k==='y'&&!MP.vote.yes[user.id])X.vyes();else if(k==='n')X.vno()});
 /* ---------- แผงห้อง ---------- */
 const mpOpen=()=>!!document.querySelector('#mc [data-mp]');
 function mpRender(){if(!mpOpen())return;const c=$('mc');const sc=c.scrollTop;const rc0=document.getElementById('rc'),rv=rc0?rc0.value:'';c.innerHTML='<button class="mx" onclick="cl()">✕</button>'+mpHtml();c.scrollTop=sc;const rc1=document.getElementById('rc');if(rc1&&rv)rc1.value=rv}
@@ -1141,7 +1201,7 @@ async function mpDo(fn){if(MP.busy)return;MP.busy=1;MP.msg='';mpRender();try{awa
 X.create=()=>mpDo(async()=>{const j=await post('/api/room',{action:'create'});mpEnter(j.room,j.members);toast('👥 สร้างห้องแล้ว ส่งรหัสให้เพื่อนได้เลย')});
 X.join=()=>{const el=document.getElementById('rc'),raw=(el?el.value:'').trim(),code=raw.toUpperCase().replace(/[^A-Z0-9]/g,'');if(code.length!==6){MP.msg=raw?('รหัสห้องต้องเป็นตัวอักษรอังกฤษ A–Z หรือเลข 0–9 ครบ 6 ตัว (อ่านได้ '+code.length+' ตัว) — ลองสลับคีย์บอร์ดเป็นภาษาอังกฤษ'):'กรุณากรอกรหัสห้อง 6 ตัว';mpRender();return}return mpDo(async()=>{const j=await post('/api/room',{action:'join',code});mpEnter(j.room,j.members);toast('👥 เข้าห้องแล้ว')})};
 X.leave=()=>mpDo(async()=>{await mpSync();await post('/api/room',{action:'leave'});mpLeave(true)});
-function mpLeave(local){clearTimeout(MP.rt);clearTimeout(MP.pullT);mpDrop();MP.room=null;MP.members=[];MP.feed=[];MP.st='off';ls('ppr2','');if(MP.shared)mpExitShared()}
+function mpLeave(local){clearTimeout(MP.rt);clearTimeout(MP.pullT);if(MP.vote)voteEnd();mpDrop();MP.room=null;MP.members=[];MP.feed=[];MP.st='off';ls('ppr2','');if(MP.shared)mpExitShared()}
 X.copy=async function(){if(!MP.room)return;try{await navigator.clipboard.writeText(MP.room.code);toast('📋 คัดลอกรหัสห้องแล้ว')}catch(e){toast('รหัสห้อง: '+MP.room.code)}};
 X.share=async function(){if(!MP.room)return;const t=`มาเล่นร้านเพียงพอด้วยกัน! รหัสห้อง: ${MP.room.code}\n${location.origin}`;if(navigator.share){try{await navigator.share({title:'ร้านเพียงพอ',text:t});return}catch(e){if(e&&e.name==='AbortError')return}}X.copy()};
 
