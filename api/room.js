@@ -2,7 +2,7 @@ const { admin, authPlayer, body } = require('./_lib/sb');
 const { cleanState, applyChange } = require('./_lib/gamestate');
 
 const ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-const DEFAULT_MAX_MEMBERS = 4;
+const MAX_MEMBERS = 6; // players per room
 const ROOM_TTL_H = 24;
 
 const genCode = () => {
@@ -162,7 +162,7 @@ module.exports = async (req, res) => {
             .insert({
               room_code: genCode(),
               owner_id: user.id,
-              max_players: DEFAULT_MAX_MEMBERS,
+              max_players: MAX_MEMBERS,
               expires_at: new Date(now.getTime() + ROOM_TTL_H * 3600 * 1000).toISOString()
             })
             .select()
@@ -216,7 +216,7 @@ module.exports = async (req, res) => {
       if (currentMembersError) return dbFailure(res, 'count_room_members', currentMembersError);
 
       const alreadyInRoom = (currentMembers || []).some(row => row.user_id === user.id);
-      const capacity = Number(room.max_players) || DEFAULT_MAX_MEMBERS;
+      const capacity = MAX_MEMBERS; // ignore the old max_players=4 stored on existing rooms
       if (!alreadyInRoom && (currentMembers || []).length >= capacity) {
         return res.status(409).json({ error: 'full' });
       }
