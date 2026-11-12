@@ -1,9 +1,9 @@
 const { admin, authPlayer, body } = require('./_lib/sb');
-const { cleanState, applyChange } = require('./_lib/gamestate');
+const { cleanState, applyChange, wealthOf } = require('./_lib/gamestate');
 
 const ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const MAX_MEMBERS = 6; // players per room
-const ROOM_TTL_H = 24;
+const ROOM_TTL_H = 24 * 30; // ห้อง (และโลกร่วม) อยู่ได้ 30 วันหลังมีการใช้งานล่าสุด
 
 const genCode = () => {
   let code = '';
@@ -103,6 +103,18 @@ async function myRoom(db, userId, nowIso) {
 
 function extendedExpiry(now) {
   return new Date(now.getTime() + ROOM_TTL_H * 3600 * 1000).toISOString();
+}
+
+// อัปเดตคะแนนทีม (อันดับทีม) — ถ้ายังไม่ได้รัน migration_005 จะแค่ log แล้วข้ามไป ไม่ทำให้เกมพัง
+async function updateTeamScore(db, room, st, extra) {
+  const w = wealthOf(st);
+  const patch = Object.assign({}, extra || {});
+  if (Number(room.team_wealth) !== w || Number(room.team_day) !== st.d || Number(room.team_money) !== st.m) {
+    Object.assign(patch, { team_wealth: w, team_money: st.m, team_day: st.d });
+  }
+  if (!Object.keys(patch).length) return;
+  const { error } = await db.from('game_rooms').update(patch).eq('id', room.id);
+  if (error) logDbError('update_team_score', error);
 }
 
 module.exports = async (req, res) => {
@@ -221,6 +233,13 @@ module.exports = async (req, res) => {
         return res.status(409).json({ error: 'full' });
       }
 
+      // ห้องว่าง (ทุกคนเคยออกไปแล้ว): ให้คนที่เข้ามาเป็นหัวหน้าห้องคนใหม่
+      if (!(currentMembers || []).length) {
+        const { error: ownerErr } = await db.from('game_rooms').update({ owner_id: user.id }).eq('id', room.id);
+        if (ownerErr) return dbFailure(res, 'claim_empty_room', ownerErr);
+        room.owner_id = user.id;
+      }
+
       // Add to the destination first; only leave the previous room after this succeeds.
       const { error: membershipError } = await db
         .from('room_members')
@@ -322,11 +341,8 @@ module.exports = async (req, res) => {
         if (countError) return dbFailure(res, 'count_remaining_members', countError);
 
         if (!count) {
-          const { error: deleteRoomError } = await db
-            .from('game_rooms')
-            .delete()
-            .eq('id', membership.room_id);
-          if (deleteRoomError) return dbFailure(res, 'delete_empty_room', deleteRoomError);
+          // ไม่ลบห้องว่างทิ้ง: โลกร่วม (room_states) ยังอยู่ ใครมีรหัสห้องก็กลับมาเล่นต่อได้
+          // จนกว่าห้องจะหมดอายุ (30 วันหลังใช้งานล่าสุด)
         } else {
           const { data: room, error: ownerLookupError } = await db
             .from('game_rooms')
@@ -399,6 +415,7 @@ module.exports = async (req, res) => {
       const expires = extendedExpiry(now);
       const { error: updError } = await db.from('game_rooms').update({ status: 'playing', expires_at: expires }).eq('id', room.id);
       if (updError) return dbFailure(res, 'start_room', updError);
+      await updateTeamScore(db, room, cleanState(rs.state) || rs.state);
 
       const result = await getMembers(db, room.id);
       if (result.error) return dbFailure(res, 'load_members', result.error);
@@ -450,10 +467,10 @@ module.exports = async (req, res) => {
         if (updError) return dbFailure(res, 'save_room_state', updError);
         if (!upd) continue; // someone else wrote first: merge again on top of their result
 
-        // Keep an active room alive.
-        if (new Date(room.expires_at).getTime() - now.getTime() < (ROOM_TTL_H - 1) * 3600 * 1000) {
-          await db.from('game_rooms').update({ expires_at: extendedExpiry(now) }).eq('id', room.id);
-        }
+        // Keep an active room alive + update the team's score for the team leaderboard.
+        const keep = new Date(room.expires_at).getTime() - now.getTime() < (ROOM_TTL_H - 1) * 3600 * 1000
+          ? { expires_at: extendedExpiry(now) } : {};
+        await updateTeamScore(db, room, next, keep);
         return res.status(200).json({ state: next, version: upd.version });
       }
       return res.status(409).json({ error: 'busy' });
