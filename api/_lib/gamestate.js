@@ -6,7 +6,9 @@ const BASE_ALLOW = 60000;      // flat money gain allowed per sync
 const PER_SEC_ALLOW = 400;     // sustained gain allowed per second since the last sync
 const ITEMS = ['ma', 'fi', 'sa', 'su', 'eg', 'ri', 'wa', 'vg', 'yo', 'ju', 'sd', 'cf', 'sn', 'bd', 'ic', 'ch'];
 const BASE_PRICE = { ma: 7, fi: 25, sa: 28, su: 27, eg: 6, ri: 130, wa: 8, vg: 12, yo: 12, ju: 14, sd: 15, cf: 18, sn: 20, bd: 28, ic: 25, ch: 20 };   // default sell price (matches index.html)
+const COST = { ma: 5, fi: 18, sa: 20, su: 20, eg: 4, ri: 100, wa: 5, vg: 8, yo: 8, ju: 9, sd: 10, cf: 12, sn: 14, bd: 18, ic: 15, ch: 12 };   // ต้องตรงกับ api/save.js
 const MAX_STOCK = 5000;
+const MAX_PLOTS = 20;          // 8 starting plots + 3 land purchases x 4 (keep in sync with landCost() in index.html)
 
 function cleanState(s) {
   if (!s || typeof s !== 'object') return null;
@@ -20,7 +22,7 @@ function cleanState(s) {
     st[k] = Number.isFinite(a) ? Math.max(0, Math.min(MAX_STOCK, a)) : 0;
     pr[k] = Number.isFinite(b) ? Math.max(1, Math.min(1e5, b)) : (BASE_PRICE[k] || 1);
   }
-  const plots = Array.isArray(s.plots) ? s.plots.slice(0, 8).map(p => p && (p.c === 'ri' || p.c === 'vg') ? { c: p.c, d: Math.round(Number(p.d)) || 1 } : null) : Array(8).fill(null);
+  const plots = Array.isArray(s.plots) ? s.plots.slice(0, MAX_PLOTS).map(p => p && (p.c === 'ri' || p.c === 'vg') ? { c: p.c, d: Math.round(Number(p.d)) || 1 } : null) : Array(8).fill(null);
   while (plots.length < 8) plots.push(null);
   const nest = Array.isArray(s.nest) ? s.nest.slice(0, 4).map(n => ({ d: Math.round(Number(n && n.d)) || 1 })) : [];
   const emp = s.emp && typeof s.emp === 'object' ? { sl: s.emp.sl ? 1 : 0 } : null;
@@ -42,14 +44,18 @@ function cleanState(s) {
     hens: Math.max(0, Math.min(8, Math.round(Number(s.hens)) || 0)),
     coop: Math.max(0, Math.min(12, Math.round(Number(s.coop)) || 0)),
     wv: Math.max(0, Math.round(Number(s.wv)) || 0),
+    gun: s.gun ? 1 : 0,
+    clerk: s.clerk && typeof s.clerk === 'object' ? {} : null,
     sold: Math.max(0, Math.round(Number(s.sold)) || 0),
+    clk: Number.isFinite(Number(s.clk)) && s.clk !== null ? Math.max(0, Math.min(1200, Math.round(Number(s.clk)))) : 360,   // เวลาในร้าน (360 = 06:00)
+    vipPend: s.vipPend ? 1 : 0,                                                                                           // มี VIP รออยู่
     st, pr,
     tr: { d: s.tr && Math.round(Number(s.tr.d)) || 1, v: trv }
   };
 }
 
 // Keys replaced as a whole (last writer wins). Money, sales and stock are merged as deltas.
-const SET_KEYS = ['plots', 'nest', 'hens', 'coop', 'emp', 'ev', 'pr', 'tr', 'wv', 'd'];
+const SET_KEYS = ['plots', 'nest', 'hens', 'coop', 'emp', 'clerk', 'ev', 'pr', 'tr', 'wv', 'd', 'gun', 'clk'];
 
 const int = v => { const n = Math.round(Number(v)); return Number.isFinite(n) ? n : 0; };
 
@@ -74,4 +80,12 @@ function applyChange(cur, change, secs) {
   return cleanState(next) || cur;
 }
 
-module.exports = { cleanState, applyChange, ITEMS, SET_KEYS, MAX_MONEY };
+// ความมั่งคั่งของโลกร่วม (คิดบนเซิร์ฟเวอร์เท่านั้น) = เงินสด + สต็อกตามราคาทุน + แม่ไก่
+function wealthOf(s) {
+  let w = s.m;
+  for (const k of ITEMS) w += (s.st[k] || 0) * COST[k];
+  w += (s.hens || 0) * 50;
+  return Math.round(w);
+}
+
+module.exports = { cleanState, applyChange, wealthOf, ITEMS, SET_KEYS, MAX_MONEY };
