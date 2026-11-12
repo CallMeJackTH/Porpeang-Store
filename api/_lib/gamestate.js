@@ -4,7 +4,8 @@ const MAX_MONEY = 1e9;
 const MAX_DAY = 100000;
 const BASE_ALLOW = 60000;      // flat money gain allowed per sync
 const PER_SEC_ALLOW = 400;     // sustained gain allowed per second since the last sync
-const ITEMS = ['ma', 'fi', 'sa', 'su', 'eg', 'ri', 'wa', 'vg'];
+const ITEMS = ['ma', 'fi', 'sa', 'su', 'eg', 'ri', 'wa', 'vg', 'yo', 'ju', 'sd', 'cf', 'sn', 'bd', 'ic', 'ch'];
+const BASE_PRICE = { ma: 7, fi: 25, sa: 28, su: 27, eg: 6, ri: 130, wa: 8, vg: 12, yo: 12, ju: 14, sd: 15, cf: 18, sn: 20, bd: 28, ic: 25, ch: 20 };   // default sell price (matches index.html)
 const MAX_STOCK = 5000;
 
 function cleanState(s) {
@@ -17,7 +18,7 @@ function cleanState(s) {
     const a = Math.round(Number(s.st && s.st[k]));
     const b = Math.round(Number(s.pr && s.pr[k]));
     st[k] = Number.isFinite(a) ? Math.max(0, Math.min(MAX_STOCK, a)) : 0;
-    pr[k] = Number.isFinite(b) ? Math.max(1, Math.min(1e5, b)) : 1;
+    pr[k] = Number.isFinite(b) ? Math.max(1, Math.min(1e5, b)) : (BASE_PRICE[k] || 1);
   }
   const plots = Array.isArray(s.plots) ? s.plots.slice(0, 8).map(p => p && (p.c === 'ri' || p.c === 'vg') ? { c: p.c, d: Math.round(Number(p.d)) || 1 } : null) : Array(8).fill(null);
   while (plots.length < 8) plots.push(null);
